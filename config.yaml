@@ -1,0 +1,21 @@
+# Example configuration for the SNMP device monitoring app.
+
+devices:
+  # List your devices here. Each entry should contain at minimum an IP and community.
+  # Optionally specify a friendly name and SNMP port.
+  - name: Router1
+    ip: 192.168.1.1
+    community: public
+    port: 161
+  - name: Switch1
+    ip: 192.168.1.2
+    community: public
+    port: 161
+
+# Alert settings are provided as a stub for future extension. This application
+# does not implement email alerts out of the box, but these settings can be
+# consumed by your own alerting code if you choose to add it.
+alerts:
+  enabled: false
+  email: you@example.com
+  cpu_threshold: 80

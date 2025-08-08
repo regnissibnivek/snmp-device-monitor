@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SNMP Device Monitor</title>
+  <!-- Bootstrap CSS for simple styling -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    .status-online {
+      color: #28a745;
+      font-weight: bold;
+    }
+    .status-offline {
+      color: #dc3545;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body class="container mt-4">
+  <h1 class="mb-4">SNMP Device Monitoring Dashboard</h1>
+  <table class="table table-bordered table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th>IP Address</th>
+        <th>Status</th>
+        <th>Uptime</th>
+        <th>CPU Load</th>
+        <th>Memory Usage</th>
+        <th>Interfaces Up</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for dev in devices %}
+      <tr>
+        <td>{{ dev.name }}</td>
+        <td>{{ dev.ip }}</td>
+        <td>
+          {% if dev.metrics.status == 'online' %}
+            <span class="status-online">Online</span>
+          {% else %}
+            <span class="status-offline">Offline</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if dev.metrics.status == 'online' %}
+            {{ dev.metrics.sysUpTime }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>
+          {% if dev.metrics.cpuLoad is not none %}
+            {{ "%.1f%%" | format(dev.metrics.cpuLoad) }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>
+          {% if dev.metrics.memoryUsage is not none %}
+            {{ "%.1f%%" | format(dev.metrics.memoryUsage) }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>
+          {% if dev.metrics.interfacesUp is not none %}
+            {{ dev.metrics.interfacesUp }}/{{ dev.metrics.interfacesTotal }} ({{ "%.1f%%" | format(dev.metrics.interfacesUpPct) }})
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="small text-muted">Data is refreshed on page load. See the JSON at <a href="/api/status">/api/status</a>.</p>
+</body>
+</html>
