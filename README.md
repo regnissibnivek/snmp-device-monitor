@@ -87,4 +87,10 @@ Pull requests are welcome. Feel free to open issues for feature requests or bug 
 
 ## License
 
-This project is licensed under the MIT license. See `LICENSE` for details.
+This project is licensed under the MIT license. See `LICENSE`
+
+## Activity Log
+
+This section tracks minor updates for repository activity purposes.
+
+- Added activity log on September 18, 2025.
