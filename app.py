@@ -12,6 +12,31 @@ from pysnmp.hlapi import (
 )
 
 
+
+
+def build_status_summary(statuses):
+    """
+    Create a summary of device statuses counting online and offline devices.
+
+    Parameters
+    ----------
+    statuses : list of dict
+        List of device status dictionaries from build_statuses().
+
+    Returns
+    -------
+    dict
+        Dictionary with keys 'online' and 'offline' representing the counts.
+    """
+    summary = {'online': 0, 'offline': 0}
+    for device in statuses:
+        status = device.get('metrics', {}).get('status')
+        if status == 'online':
+            summary['online'] += 1
+        else:
+            summary['offline'] += 1
+    return summary
+
 def load_config(path: str = 'config.yaml'):
     """
     Load the YAML configuration file containing devices and alert settings.
@@ -214,6 +239,14 @@ def api_status():
     """Return JSON array of device statuses."""
     statuses = build_statuses()
     return jsonify(statuses)
+
+@app.route('/api/summary')
+def api_summary():
+    """Return JSON summary of device statuses."""
+    statuses = build_statuses()
+    summary = build_status_summary(statuses)
+    return jsonify(summary)
+
 
 
 @app.route('/')
