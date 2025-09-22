@@ -4,77 +4,471 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SNMP Device Monitor</title>
-  <!-- Bootstrap CSS for simple styling -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     .status-online {
-      color: #28a745;
-      font-weight: bold;
+      color: #198754;
+      font-weight: 600;
     }
+
     .status-offline {
       color: #dc3545;
-      font-weight: bold;
+      font-weight: 600;
+    }
+
+    .refresh-button[aria-busy="true"] {
+      position: relative;
+      pointer-events: none;
+      opacity: 0.75;
+    }
+
+    .refresh-button[aria-busy="true"]::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 1rem;
+      width: 1rem;
+      height: 1rem;
+      margin-top: -0.5rem;
+      border: 0.15rem solid rgba(255, 255, 255, 0.7);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
     }
   </style>
 </head>
 <body class="container mt-4">
-  <h1 class="mb-4">SNMP Device Monitoring Dashboard</h1>
-  <table class="table table-bordered table-hover">
-    <thead class="table-light">
-      <tr>
-        <th>Name</th>
-        <th>IP Address</th>
-        <th>Status</th>
-        <th>Uptime</th>
-        <th>CPU Load</th>
-        <th>Memory Usage</th>
-        <th>Interfaces Up</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for dev in devices %}
-      <tr>
-        <td>{{ dev.name }}</td>
-        <td>{{ dev.ip }}</td>
-        <td>
-          {% if dev.metrics.status == 'online' %}
-            <span class="status-online">Online</span>
-          {% else %}
-            <span class="status-offline">Offline</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if dev.metrics.status == 'online' %}
-            {{ dev.metrics.sysUpTime }}
-          {% else %}
-            N/A
-          {% endif %}
-        </td>
-        <td>
-          {% if dev.metrics.cpuLoad is not none %}
-            {{ "%.1f%%" | format(dev.metrics.cpuLoad) }}
-          {% else %}
-            N/A
-          {% endif %}
-        </td>
-        <td>
-          {% if dev.metrics.memoryUsage is not none %}
-            {{ "%.1f%%" | format(dev.metrics.memoryUsage) }}
-          {% else %}
-            N/A
-          {% endif %}
-        </td>
-        <td>
-          {% if dev.metrics.interfacesUp is not none %}
-            {{ dev.metrics.interfacesUp }}/{{ dev.metrics.interfacesTotal }} ({{ "%.1f%%" | format(dev.metrics.interfacesUpPct) }})
-          {% else %}
-            N/A
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="small text-muted">Data is refreshed on page load. See the JSON at <a href="/api/status">/api/status</a>.</p>
+  <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-md-between gap-3 mb-4">
+    <h1 class="mb-0">SNMP Device Monitoring Dashboard</h1>
+    <div class="text-md-end">
+      <div class="small text-muted">Last updated: <span id="last-updated">{{ summary.generatedAt }}</span></div>
+      <div class="small text-muted">Auto-refresh every 30 seconds</div>
+    </div>
+  </div>
+
+  <div id="refresh-error" class="alert alert-danger d-none" role="alert">
+    Unable to refresh data. Showing the most recent cached values.
+  </div>
+
+  <div class="row g-3 mb-4" id="summary-cards">
+    <div class="col-12 col-sm-6 col-lg-3">
+      <div class="card border-success h-100">
+        <div class="card-body">
+          <h5 class="card-title text-success">Online Devices</h5>
+          <p class="card-text display-6 fw-semibold mb-0" id="summary-online">{{ summary.online }}</p>
+          <p class="card-text text-muted mb-0">
+            <span id="summary-online-pct">{{ '%.1f%%' | format(summary.onlinePct) if summary.total else '0.0%' }}</span>
+            of <span id="summary-total">{{ summary.total }}</span> devices
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <div class="card border-danger h-100">
+        <div class="card-body">
+          <h5 class="card-title text-danger">Offline Devices</h5>
+          <p class="card-text display-6 fw-semibold mb-0" id="summary-offline">{{ summary.offline }}</p>
+          <p class="card-text text-muted mb-0">Rate: <span id="summary-offline-pct">{{ '%.1f%%' | format(summary.offlinePct) if summary.total else '0.0%' }}</span></p>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <div class="card border-primary h-100">
+        <div class="card-body">
+          <h5 class="card-title text-primary">Average CPU Load</h5>
+          <p class="card-text fs-4 mb-0" id="summary-avg-cpu">
+            {% if summary.avgCpuLoad is not none %}
+              {{ '%.1f%%' | format(summary.avgCpuLoad) }}
+            {% else %}
+              N/A
+            {% endif %}
+          </p>
+          <p class="card-text text-muted mb-0">Higher values indicate heavier load.</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <div class="card border-info h-100">
+        <div class="card-body">
+          <h5 class="card-title text-info">Average Memory Usage</h5>
+          <p class="card-text fs-4 mb-0" id="summary-avg-memory">
+            {% if summary.avgMemoryUsage is not none %}
+              {{ '%.1f%%' | format(summary.avgMemoryUsage) }}
+            {% else %}
+              N/A
+            {% endif %}
+          </p>
+          <p class="card-text text-muted mb-0">Shows aggregated in-use memory.</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <div class="card border-secondary h-100">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Interfaces Up</h5>
+          <p class="card-text fs-4 mb-0" id="summary-avg-interfaces">
+            {% if summary.avgInterfaceUpPct is not none %}
+              {{ '%.1f%%' | format(summary.avgInterfaceUpPct) }}
+            {% else %}
+              N/A
+            {% endif %}
+          </p>
+          <p class="card-text text-muted mb-0">Percentage of interfaces reporting up.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-lg-between gap-3 mb-3">
+    <div class="btn-group" role="group" aria-label="Filter devices by status">
+      <button type="button" class="btn btn-outline-secondary active" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="btn btn-outline-secondary" data-filter="online" aria-pressed="false">Online</button>
+      <button type="button" class="btn btn-outline-secondary" data-filter="offline" aria-pressed="false">Offline</button>
+    </div>
+    <div class="d-flex flex-column flex-sm-row gap-2 w-100 w-lg-auto">
+      <div class="input-group">
+        <span class="input-group-text" id="device-search-label">Search</span>
+        <input type="search" class="form-control" id="device-search" placeholder="Filter by name or IP" aria-labelledby="device-search-label" />
+      </div>
+      <button class="btn btn-primary refresh-button" id="refresh-button" type="button">Refresh now</button>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">IP Address</th>
+          <th scope="col">Status</th>
+          <th scope="col">Uptime</th>
+          <th scope="col">CPU Load</th>
+          <th scope="col">Memory Usage</th>
+          <th scope="col">Interfaces Up</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="device-table-body">
+        <tr id="loading-row">
+          <td colspan="8" class="text-center text-muted py-4">Loading devices…</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="no-results" class="alert alert-info mt-3 d-none" role="status">
+    No devices match your current filters.
+  </div>
+
+  <p class="small text-muted mt-3">
+    Data refreshes automatically every 30 seconds. Explore the raw JSON at
+    <a href="/api/status">/api/status</a>, aggregated metrics at <a href="/api/summary">/api/summary</a> or open individual devices via the actions menu.
+  </p>
+
+  <script>
+    const refreshIntervalMs = 30000;
+    let devicesData = {{ devices | tojson }};
+    let summaryData = {{ summary | tojson }};
+    let currentFilter = 'all';
+    let searchTerm = '';
+
+    function isValidNumber(value) {
+      return typeof value === 'number' && Number.isFinite(value);
+    }
+
+    function formatPercent(value) {
+      return isValidNumber(value) ? value.toFixed(1) + '%' : 'N/A';
+    }
+
+    function getLoadSeverityClass(value) {
+      if (!isValidNumber(value)) {
+        return 'text-muted';
+      }
+      if (value >= 85) {
+        return 'text-danger fw-semibold';
+      }
+      if (value >= 70) {
+        return 'text-warning fw-semibold';
+      }
+      return 'text-success fw-semibold';
+    }
+
+    function getAvailabilitySeverityClass(value) {
+      if (!isValidNumber(value)) {
+        return 'text-muted';
+      }
+      if (value < 60) {
+        return 'text-danger fw-semibold';
+      }
+      if (value < 85) {
+        return 'text-warning fw-semibold';
+      }
+      return 'text-success fw-semibold';
+    }
+
+    function escapeHtml(value) {
+      return value == null
+        ? ''
+        : String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function filterDevices(devices) {
+      const term = (searchTerm || '').trim().toLowerCase();
+      return devices.filter((device) => {
+        const metrics = device.metrics || {};
+        if (currentFilter === 'online' && metrics.status !== 'online') {
+          return false;
+        }
+        if (currentFilter === 'offline' && metrics.status === 'online') {
+          return false;
+        }
+        if (term) {
+          const name = (device.name || '').toLowerCase();
+          const ip = (device.ip || '').toLowerCase();
+          return name.includes(term) || ip.includes(term);
+        }
+        return true;
+      });
+    }
+
+    function formatInterfaces(metrics) {
+      if (!metrics) {
+        return 'N/A';
+      }
+      const up = metrics.interfacesUp;
+      const total = metrics.interfacesTotal;
+      const pct = metrics.interfacesUpPct;
+      if (typeof up === 'number' && typeof total === 'number' && total > 0) {
+        if (isValidNumber(pct)) {
+          return up + '/' + total + ' (' + pct.toFixed(1) + '%)';
+        }
+        return up + '/' + total;
+      }
+      return 'N/A';
+    }
+
+    function renderDevices(devices) {
+      devicesData = Array.isArray(devices) ? devices : [];
+      const tbody = document.getElementById('device-table-body');
+      const noResultsEl = document.getElementById('no-results');
+      if (!tbody) {
+        return;
+      }
+      const filtered = filterDevices(devicesData);
+      if (!filtered.length) {
+        tbody.innerHTML = '';
+        if (noResultsEl) {
+          noResultsEl.classList.remove('d-none');
+        }
+        return;
+      }
+      if (noResultsEl) {
+        noResultsEl.classList.add('d-none');
+      }
+      const rows = filtered
+        .map((device) => {
+          const metrics = device.metrics || {};
+          const status = metrics.status === 'online' ? 'online' : 'offline';
+          const statusClass = status === 'online' ? 'status-online' : 'status-offline';
+          const rowClass = status === 'online' ? '' : 'table-danger';
+          const uptimeText = status === 'online' ? escapeHtml(metrics.sysUpTime || 'Unknown') : 'N/A';
+          const cpuClass = 'fw-semibold ' + getLoadSeverityClass(metrics.cpuLoad);
+          const cpuText = isValidNumber(metrics.cpuLoad) ? metrics.cpuLoad.toFixed(1) + '%' : 'N/A';
+          const memClass = 'fw-semibold ' + getLoadSeverityClass(metrics.memoryUsage);
+          const memText = isValidNumber(metrics.memoryUsage) ? metrics.memoryUsage.toFixed(1) + '%' : 'N/A';
+          const ifacePctClass = 'fw-semibold ' + getAvailabilitySeverityClass(metrics.interfacesUpPct);
+          const ifaceText = formatInterfaces(metrics);
+          const actionUrl = '/api/device/' + encodeURIComponent(device.ip || device.name || '');
+          return (
+            '<tr class="' +
+            rowClass +
+            '">' +
+            '<td>' +
+            escapeHtml(device.name || device.ip || 'Unknown') +
+            '</td>' +
+            '<td>' +
+            escapeHtml(device.ip || 'Unknown') +
+            '</td>' +
+            '<td><span class="' +
+            statusClass +
+            '">' +
+            (status === 'online' ? 'Online' : 'Offline') +
+            '</span></td>' +
+            '<td>' +
+            uptimeText +
+            '</td>' +
+            '<td class="' +
+            cpuClass +
+            '">' +
+            cpuText +
+            '</td>' +
+            '<td class="' +
+            memClass +
+            '">' +
+            memText +
+            '</td>' +
+            '<td class="' +
+            ifacePctClass +
+            '">' +
+            ifaceText +
+            '</td>' +
+            '<td><a class="btn btn-sm btn-outline-primary" href="' +
+            actionUrl +
+            '" target="_blank" rel="noopener">View JSON</a></td>' +
+            '</tr>'
+          );
+        })
+        .join('');
+      tbody.innerHTML = rows;
+    }
+
+    function updateLastUpdated(isoString) {
+      const el = document.getElementById('last-updated');
+      if (!el) {
+        return;
+      }
+      if (!isoString) {
+        el.textContent = new Date().toLocaleString();
+        return;
+      }
+      const parsed = new Date(isoString);
+      el.textContent = Number.isNaN(parsed.getTime()) ? isoString : parsed.toLocaleString();
+    }
+
+    function renderSummary(summary) {
+      summaryData = summary || {};
+      const total = summaryData.total ?? devicesData.length ?? 0;
+      const online = summaryData.online ?? 0;
+      const offline = summaryData.offline ?? Math.max(total - online, 0);
+
+      const onlineEl = document.getElementById('summary-online');
+      const offlineEl = document.getElementById('summary-offline');
+      const totalEl = document.getElementById('summary-total');
+      const onlinePctEl = document.getElementById('summary-online-pct');
+      const offlinePctEl = document.getElementById('summary-offline-pct');
+      const cpuEl = document.getElementById('summary-avg-cpu');
+      const memEl = document.getElementById('summary-avg-memory');
+      const ifaceEl = document.getElementById('summary-avg-interfaces');
+
+      if (onlineEl) {
+        onlineEl.textContent = online;
+      }
+      if (offlineEl) {
+        offlineEl.textContent = offline;
+      }
+      if (totalEl) {
+        totalEl.textContent = total;
+      }
+      if (onlinePctEl) {
+        const pct = summaryData.onlinePct ?? (total ? (online / total) * 100 : 0);
+        onlinePctEl.textContent = formatPercent(pct);
+      }
+      if (offlinePctEl) {
+        const pct = summaryData.offlinePct ?? (total ? (offline / total) * 100 : 0);
+        offlinePctEl.textContent = formatPercent(pct);
+      }
+      if (cpuEl) {
+        cpuEl.textContent = formatPercent(summaryData.avgCpuLoad);
+        cpuEl.className = 'card-text fs-4 mb-0 ' + getLoadSeverityClass(summaryData.avgCpuLoad);
+      }
+      if (memEl) {
+        memEl.textContent = formatPercent(summaryData.avgMemoryUsage);
+        memEl.className = 'card-text fs-4 mb-0 ' + getLoadSeverityClass(summaryData.avgMemoryUsage);
+      }
+      if (ifaceEl) {
+        ifaceEl.textContent = formatPercent(summaryData.avgInterfaceUpPct);
+        ifaceEl.className = 'card-text fs-4 mb-0 ' + getAvailabilitySeverityClass(summaryData.avgInterfaceUpPct);
+      }
+
+      updateLastUpdated(summaryData.generatedAt);
+    }
+
+    async function refreshData() {
+      const refreshButton = document.getElementById('refresh-button');
+      const errorEl = document.getElementById('refresh-error');
+      try {
+        if (refreshButton) {
+          refreshButton.disabled = true;
+          refreshButton.setAttribute('aria-busy', 'true');
+        }
+        const [statusResponse, summaryResponse] = await Promise.all([
+          fetch('/api/status'),
+          fetch('/api/summary')
+        ]);
+        if (!statusResponse.ok || !summaryResponse.ok) {
+          throw new Error('Request failed');
+        }
+        const [statusJson, summaryJson] = await Promise.all([
+          statusResponse.json(),
+          summaryResponse.json()
+        ]);
+        renderDevices(statusJson);
+        renderSummary(summaryJson);
+        if (errorEl) {
+          errorEl.classList.add('d-none');
+        }
+      } catch (error) {
+        console.error('Failed to refresh data', error);
+        if (errorEl) {
+          errorEl.classList.remove('d-none');
+        }
+      } finally {
+        if (refreshButton) {
+          refreshButton.disabled = false;
+          refreshButton.removeAttribute('aria-busy');
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderDevices(devicesData);
+      renderSummary(summaryData);
+
+      const filterButtons = Array.from(document.querySelectorAll('button[data-filter]'));
+      filterButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          currentFilter = button.getAttribute('data-filter') || 'all';
+          filterButtons.forEach((btn) => {
+            if (btn === button) {
+              btn.classList.add('active');
+              btn.setAttribute('aria-pressed', 'true');
+            } else {
+              btn.classList.remove('active');
+              btn.setAttribute('aria-pressed', 'false');
+            }
+          });
+          renderDevices(devicesData);
+        });
+      });
+
+      const searchInput = document.getElementById('device-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+          searchTerm = event.target.value || '';
+          renderDevices(devicesData);
+        });
+      }
+
+      const refreshButton = document.getElementById('refresh-button');
+      if (refreshButton) {
+        refreshButton.addEventListener('click', () => refreshData());
+      }
+
+      setInterval(refreshData, refreshIntervalMs);
+    });
+  </script>
 </body>
 </html>

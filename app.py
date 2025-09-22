@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import yaml
 from flask import Flask, jsonify, render_template
 from pysnmp.hlapi import (
@@ -15,26 +17,52 @@ from pysnmp.hlapi import (
 
 
 def build_status_summary(statuses):
-    """
-    Create a summary of device statuses counting online and offline devices.
+    """Build an aggregate summary of device status and health metrics."""
 
-    Parameters
-    ----------
-    statuses : list of dict
-        List of device status dictionaries from build_statuses().
+    def _average(values):
+        return sum(values) / len(values) if values else None
 
-    Returns
-    -------
-    dict
-        Dictionary with keys 'online' and 'offline' representing the counts.
-    """
-    summary = {'online': 0, 'offline': 0}
+    total_devices = len(statuses)
+    online_count = 0
+    cpu_values = []
+    memory_values = []
+    interface_pct_values = []
+
     for device in statuses:
-        status = device.get('metrics', {}).get('status')
+        metrics = device.get('metrics', {})
+        status = metrics.get('status')
         if status == 'online':
-            summary['online'] += 1
-        else:
-            summary['offline'] += 1
+            online_count += 1
+
+        cpu_value = metrics.get('cpuLoad')
+        if isinstance(cpu_value, (int, float)):
+            cpu_values.append(float(cpu_value))
+
+        memory_value = metrics.get('memoryUsage')
+        if isinstance(memory_value, (int, float)):
+            memory_values.append(float(memory_value))
+
+        interface_pct = metrics.get('interfacesUpPct')
+        if isinstance(interface_pct, (int, float)):
+            interface_pct_values.append(float(interface_pct))
+
+    summary = {
+        'total': total_devices,
+        'online': online_count,
+        'offline': total_devices - online_count,
+        'avgCpuLoad': _average(cpu_values),
+        'avgMemoryUsage': _average(memory_values),
+        'avgInterfaceUpPct': _average(interface_pct_values),
+        'generatedAt': datetime.utcnow().isoformat() + 'Z',
+    }
+
+    if total_devices:
+        summary['onlinePct'] = (online_count / total_devices) * 100.0
+        summary['offlinePct'] = 100.0 - summary['onlinePct']
+    else:
+        summary['onlinePct'] = 0.0
+        summary['offlinePct'] = 0.0
+
     return summary
 
 def load_config(path: str = 'config.yaml'):
@@ -240,6 +268,19 @@ def api_status():
     statuses = build_statuses()
     return jsonify(statuses)
 
+
+@app.route('/api/device/<device_id>')
+def api_device(device_id):
+    """Return JSON metrics for a single device addressed by IP or name."""
+    config = load_config()
+    for device in config.get('devices', []):
+        name = device.get('name', device.get('ip'))
+        if device.get('ip') == device_id or name == device_id:
+            metrics = get_device_metrics(device)
+            return jsonify({'name': name, 'ip': device.get('ip'), 'metrics': metrics})
+    return jsonify({'error': 'Device not found'}), 404
+
+
 @app.route('/api/summary')
 def api_summary():
     """Return JSON summary of device statuses."""
@@ -253,7 +294,8 @@ def api_summary():
 def index():
     """Render the HTML dashboard."""
     devices = build_statuses()
-    return render_template('index.html', devices=devices)
+    summary = build_status_summary(devices)
+    return render_template('index.html', devices=devices, summary=summary)
 
 
 if __name__ == '__main__':
