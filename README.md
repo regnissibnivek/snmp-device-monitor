@@ -7,7 +7,11 @@ This repository contains a lightweight SNMP monitoring tool built with Python an
 * **Device configuration via YAML:** Load a list of devices with IP address, friendly name and SNMP community from `config.yaml`.
 * **SNMP polling:** The app uses the [`pysnmp`](https://pysnmp.readthedocs.io/) library to retrieve system uptime, CPU load, memory usage and interface status from each device.
 * **Web dashboard:** A Flask‑based front end renders a responsive table with color‑coded status indicators showing which devices are online or offline.
+* **Live controls:** Built-in search, filtering and manual refresh tools help you focus on the devices that matter while the dashboard auto-refreshes every 30 seconds.
+* **Summary cards:** Aggregated tiles highlight online/offline counts plus average CPU, memory and interface availability at a glance.
 * **JSON API:** The `/api/status` endpoint returns all collected metrics as a JSON array for programmatic consumption or integration with other tools.
+* **Per-device JSON:** Query `/api/device/<device_id>` (IP address or device name) to poll a single device on demand.
+* **Enhanced summary API:** `/api/summary` now reports online/offline percentages alongside average CPU, memory and interface health values.
 * **Extensible:** Alert configuration is stubbed out in `config.yaml` so you can wire in email alerts or threshold checks.
 
 ## Getting started
